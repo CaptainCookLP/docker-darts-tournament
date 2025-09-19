@@ -4,7 +4,6 @@
 <title>Bracket – Autodarts</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-
 :root { --brand:#fe7d19; --bg:#262629; --fg:#ffffff; --muted:#bfbfc4; --card:#2e2e33; --ok:#2ecc71; --warn:#f1c40f; --info:#3498db; --bad:#e74c3c; }
 *{box-sizing:border-box}
 body{ margin:0; background:var(--bg); color:var(--fg); font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
@@ -16,26 +15,26 @@ header{ display:flex; align-items:center; justify-content:space-between; padding
 .logo{width:12px; height:12px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 6px rgba(254,125,25,.2)}
 h1{font-size:18px; margin:0}
 main{ padding:16px }
-.card{ background:var(--card); border:1px solid #3a3a3f; border-radius:14px; padding:16px }
+.card{ background:var(--card); border:1px solid #3a3a3f; border-radius:14px; padding:20px } /* +padding */
 h2{margin:0 0 10px 0; font-size:16px}
 input,select,textarea,button { background:#1f1f22; color:var(--fg); border:1px solid #3a3a3f; border-radius:10px; padding:10px; }
 button{ cursor:pointer; font-weight:600 }
 button.primary{ background:var(--brand); border-color:var(--brand); color:#000 }
 .small{ font-size:12px; color:var(--muted) }
-.row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
-.stack{ display:grid; gap:10px }
-.badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700 }
+.row{ display:grid; grid-template-columns:1fr 1fr; gap:16px } /* +gap */
+.stack{ display:grid; gap:12px } /* +gap */
+.badge{ padding:3px 9px; border-radius:999px; font-size:11px; font-weight:700 } /* +padding */
 .status-pending{background:#444; color:#eee}
 .status-assigned{background:var(--info); color:#000}
 .status-running{background:var(--ok); color:#000}
 .status-done{background:var(--bad); color:#fff}
 .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 
-.bracket{ display:grid; grid-template-columns: repeat(5, 1fr); gap:16px; position:relative }
-.column{ display:grid; gap:12px }
-.match{ border:1px solid #3a3a3f; border-radius:12px; padding:10px; background:#1f1f22 }
+.bracket{ display:grid; grid-template-columns: repeat(5, 1fr); gap:18px; position:relative } /* +gap */
+.column{ display:grid; gap:14px } /* +gap */
+.match{ border:1px solid #3a3a3f; border-radius:12px; padding:12px; background:#1f1f22 }
 .title{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px }
-.players{ display:flex; flex-direction:column; gap:6px }
+.players{ display:flex; flex-direction:column; gap:6px; line-height:1.35 } /* +line-height */
 .player{ display:flex; align-items:center; justify-content:space-between; gap:8px }
 .sep{ height:1px; background:#35353a; margin:8px 0 }
 svg.connect{ position:absolute; inset:0; pointer-events:none }
@@ -66,12 +65,17 @@ svg.connect{ position:absolute; inset:0; pointer-events:none }
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 const dash = io('/dashboard');
-let TID = null;
-const urlTid = new URLSearchParams(location.search).get('id');
-if (urlTid) TID = urlTid;
-document.getElementById('tid').textContent = TID || '–';
+const TID = "t_current"; // fester Turnier-Schlüssel
+document.getElementById('tid').textContent = TID;
 
-dash.on('TOURNAMENT', data => { if (TID && data.id!==TID) return; render(data); });
+// Initialen Stand laden, damit direkt etwas angezeigt wird
+fetch('/api/tournaments/current')
+  .then(r => r.json())
+  .then(data => render(data))
+  .catch(()=>{ /* ignorieren */ });
+
+// Live-Updates (nur für das aktuelle Turnier)
+dash.on('TOURNAMENT', data => { if (!data || data.id !== TID) return; render(data); });
 
 function playerLabel(t,pid){
   const p=(t.players||[]).find(pp=>pp.id===pid);
@@ -82,7 +86,6 @@ function statusBadge(st){ const c=st==='running'?'status-running':st==='assigned
 
 function render(t){
   if(!t) return;
-  if (!TID) { TID = t.id; document.getElementById('tid').textContent=TID; }
   const rounds = {1:[],2:[],3:[],4:[],5:[]};
   (t.matches||[]).forEach(m=>{ const k=(m.round_index===4&&m.position===2)?5:m.round_index; rounds[k].push(m); });
 

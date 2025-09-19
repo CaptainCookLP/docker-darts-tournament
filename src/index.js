@@ -17,6 +17,9 @@ const TLS_ENABLED = (process.env.TLS_ENABLED || "false").toLowerCase() === "true
 const TLS_KEY_FILE = process.env.TLS_KEY_FILE || "/certs/privkey.pem";
 const TLS_CERT_FILE = process.env.TLS_CERT_FILE || "/certs/fullchain.pem";
 
+// --- Single-Tournament-ID ---
+const CURRENT_TID = "t_current";
+
 // --- DB ---
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -83,7 +86,6 @@ app.use(cors({
   }
 }));
 app.use(express.static("public", { extensions: ["html"] }));
-
 
 // --- HTTP/HTTPS server ---
 let server;
@@ -311,6 +313,7 @@ app.get("/api/events", (req,res) => {
   res.json(q.listEvents.all(tid, limit));
 });
 
+// Create/replace the single current tournament
 app.post("/api/tournaments", (req,res) => {
   try {
     const payload = req.body || {};
@@ -321,15 +324,22 @@ app.post("/api/tournaments", (req,res) => {
     if (effectivePlayers.length < 2) {
       return res.status(400).json({ error:"at least two players are required" });
     }
-
     if (overflow > 0) {
       console.warn(`[tournament] ignoring ${overflow} players beyond the first 16`);
     }
 
     const settings = loadSettings();
-    const tid = makeId("t");
+    const tid = CURRENT_TID; // <— feste ID
     const tournamentName = payload.name?.toString().trim() || settings.defaults?.name || "Tournament";
     const createdAt = new Date().toISOString();
+
+    // DB: vorherige Daten des aktuellen Turniers löschen
+    db.transaction(() => {
+      db.prepare(`DELETE FROM events   WHERE tournament_id=?`).run(tid);
+      db.prepare(`DELETE FROM matches  WHERE tournament_id=?`).run(tid);
+      db.prepare(`DELETE FROM players  WHERE tournament_id=?`).run(tid);
+      db.prepare(`DELETE FROM tournaments WHERE id=?`).run(tid);
+    })();
 
     const base = asPositiveInt(payload.x01?.base, settings.defaults.x01.base);
     const xin  = payload.x01?.in   ?? settings.defaults.x01.in;
@@ -378,9 +388,21 @@ app.post("/api/tournaments", (req,res) => {
     });
 
     createTournamentTx();
+
+    // Neu: sofort Broadcasten, damit Bracket ohne Reload rendert
+    broadcastTournament(tid);
+
     res.json(getTournamentDetail(tid));
   } catch (e) { console.error(e); res.status(500).json({error:e.message}); }
 });
+
+// Start Scheduling for current tournament
+app.post("/api/tournaments/current/start", (req,res)=>{ schedule(CURRENT_TID); res.json({ok:true}); });
+
+// Convenience: read current tournament
+app.get("/api/tournaments/current", (req,res)=> res.json(getTournamentDetail(CURRENT_TID)));
+
+// Legacy endpoints (weiter nutzbar)
 app.post("/api/tournaments/:id/start", (req,res)=>{ schedule(req.params.id); res.json({ok:true}); });
 app.get("/api/tournaments/:id", (req,res)=> res.json(getTournamentDetail(req.params.id)));
 
@@ -472,7 +494,11 @@ wslogNS.on("connection", (socket)=>{
 });
 
 // --- Dashboard NS ---
-dashNS.on("connection", () => broadcastAgents());
+dashNS.on("connection", (socket) => {
+  broadcastAgents();
+  // Neu: aktuellen Turnierstand sofort beim Connect senden
+  socket.emit("TOURNAMENT", getTournamentDetail(CURRENT_TID));
+});
 
 // --- Start ---
 server.listen(PORT, () => {
