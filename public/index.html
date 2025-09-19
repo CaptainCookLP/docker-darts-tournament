@@ -23,6 +23,15 @@ button.primary{ background:var(--brand); border-color:var(--brand); color:#000 }
 .small{ font-size:12px; color:var(--muted) }
 .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
 .stack{ display:grid; gap:10px }
+.grid-auto{ display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)) }
+.muted{ color:var(--muted) }
+textarea{ background:#1f1f22; color:var(--fg); border:1px solid #3a3a3f; border-radius:10px; padding:10px; min-height:160px; resize:vertical; font-family:inherit; }
+label.checkbox{ display:flex; align-items:center; gap:8px; font-weight:500 }
+label.checkbox input{ width:auto }
+.actions{ display:flex; align-items:center; gap:12px; flex-wrap:wrap }
+.status-line{ min-height:1.2em }
+.status-line.is-error{ color:var(--bad) }
+.status-line.is-ok{ color:var(--ok) }
 .badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700 }
 .status-pending{background:#444; color:#eee}
 .status-assigned{background:var(--info); color:#000}
@@ -41,15 +50,215 @@ button.primary{ background:var(--brand); border-color:var(--brand); color:#000 }
   </nav>
 </header>
 <main>
-  <div class="card" style="max-width:880px">
+  <section class="card" style="max-width:920px">
+    <h2>Turnier erstellen</h2>
+    <form id="createForm" class="stack">
+      <label>Turniername
+        <input id="newName" placeholder="Vereins-Cup">
+      </label>
+      <label>Spielerliste
+        <textarea id="playerList" placeholder="1. Alice
+2. Bob
+Charlie
+# Seeds optional" spellcheck="false"></textarea>
+        <span class="small muted">Maximal 16 Spieler. Seeds kannst du über führende Zahlen, "#" oder Klammern angeben (z.&nbsp;B. <code class="mono">1. Alice</code>, <code class="mono">Bob #2</code>, <code class="mono">Charlie (3)</code>).</span>
+      </label>
+      <div class="grid-auto">
+        <label>X01 Base <input id="x01Base" type="number" min="1" value="501"></label>
+        <label>Bull
+          <select id="x01Bull"><option>25/50</option><option>50/50</option></select>
+        </label>
+        <label>In
+          <select id="x01In"><option>Straight</option><option>Double</option><option>Master</option></select>
+        </label>
+        <label>Out
+          <select id="x01Out"><option>Straight</option><option>Double</option><option>Master</option></select>
+        </label>
+      </div>
+      <div class="grid-auto">
+        <label>Legs pro Set <input id="legsPerSet" type="number" min="1" value="3"></label>
+        <label>Sets zum Sieg <input id="setsToWin" type="number" min="1" value="2"></label>
+      </div>
+      <div class="stack" style="gap:6px">
+        <label class="checkbox"><input type="checkbox" id="shufflePlayers"> Spieler ohne Seed mischen</label>
+        <label class="checkbox"><input type="checkbox" id="autoStart"> Turnier nach dem Erstellen automatisch starten</label>
+      </div>
+      <div class="small muted" id="playerInfo">Noch keine Spieler eingetragen.</div>
+      <div class="actions">
+        <button type="submit" class="primary">Turnier erstellen</button>
+        <span id="createStatus" class="small status-line"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card" style="max-width:880px">
     <h2>Schnellstart</h2>
     <ol>
-      <li>Öffne <a href="/settings">Settings</a> und prüfe Defaults (X01, Legs/Sets pro Runde).</li>
-      <li>Lege ein Turnier via API an (z. B. per curl/Postman) oder nutze deine bestehende UI.</li>
-      <li>Starte das Turnier: <code class="mono">POST /api/tournaments/:id/start</code>.</li>
-      <li>Zeig den Fortschritt in <a href="/bracket">Bracket</a> oder das Publikum-Overlay <a href="/overlay">Overlay</a>.</li>
+      <li>Prüfe bei Bedarf die Defaults unter <a href="/settings">Settings</a> (X01, Legs/Sets pro Runde).</li>
+      <li>Nutze das Formular oben oder deine eigene UI, um ein Turnier anzulegen.</li>
+      <li>Starte das Turnier per Checkbox (Auto-Start) oder via <code class="mono">POST /api/tournaments/:id/start</code>.</li>
+      <li>Verfolge den Fortschritt im <a href="/bracket">Bracket</a> oder nutze das Zuschauer-Overlay <a href="/overlay">Overlay</a>.</li>
     </ol>
-    <p class="small">Hinweis: Diese Startseite ist bewusst minimal gehalten. Du kannst sie jederzeit ersetzen.</p>
-  </div>
+    <p class="small muted">Tipp: Du kannst diese Startseite anpassen und in deine eigene Infrastruktur integrieren.</p>
+  </section>
 </main>
+<script>
+(function(){
+  const form = document.getElementById('createForm');
+  if (!form) return;
+  const nameInput = document.getElementById('newName');
+  const playerTextarea = document.getElementById('playerList');
+  const playerInfo = document.getElementById('playerInfo');
+  const statusEl = document.getElementById('createStatus');
+  const shuffleCheckbox = document.getElementById('shufflePlayers');
+  const autoStartCheckbox = document.getElementById('autoStart');
+  const baseInput = document.getElementById('x01Base');
+  const bullSelect = document.getElementById('x01Bull');
+  const inSelect = document.getElementById('x01In');
+  const outSelect = document.getElementById('x01Out');
+  const legsInput = document.getElementById('legsPerSet');
+  const setsInput = document.getElementById('setsToWin');
+  const submitBtn = form.querySelector('button[type="submit"]');
+
+  function parseLine(raw){
+    const text = (raw || '').trim();
+    if (!text) return null;
+    const lead = text.match(/^(\d{1,2})\s*(?:[.)-]\s*)?(.*)$/);
+    if (lead && lead[2] && lead[2].trim()) {
+      const seed = Number(lead[1]);
+      return { name: lead[2].trim(), seed: Number.isFinite(seed) && seed >= 1 && seed <= 16 ? seed : null };
+    }
+    const hash = text.match(/^(.*\S)\s+#\s*(\d{1,2})$/);
+    if (hash) {
+      const seed = Number(hash[2]);
+      return { name: hash[1].trim(), seed: Number.isFinite(seed) && seed >= 1 && seed <= 16 ? seed : null };
+    }
+    const paren = text.match(/^(.*\S)\s*\(\s*(\d{1,2})\s*\)$/);
+    if (paren) {
+      const seed = Number(paren[2]);
+      return { name: paren[1].trim(), seed: Number.isFinite(seed) && seed >= 1 && seed <= 16 ? seed : null };
+    }
+    return { name: text, seed: null };
+  }
+
+  function parsePlayers(text){
+    return text.split(/\r?\n/)
+      .map(line => parseLine(line))
+      .filter(Boolean)
+      .map(p => ({ name: p.name.trim(), seed: Number.isFinite(p.seed) ? p.seed : null }))
+      .filter(p => p.name);
+  }
+
+  function updatePlayerInfo(){
+    const players = parsePlayers(playerTextarea.value);
+    if (!players.length) {
+      playerInfo.textContent = 'Noch keine Spieler eingetragen.';
+      return;
+    }
+    const seeds = players.filter(p => Number.isFinite(p.seed)).length;
+    const overflow = Math.max(0, players.length - 16);
+    let msg = `${players.length} Spieler erfasst`;
+    if (seeds) msg += ` · ${seeds} Seed${seeds === 1 ? '' : 's'} erkannt`;
+    if (overflow) msg += ` · ${overflow} ${overflow === 1 ? 'weiterer Spieler' : 'weitere Spieler'} werden ignoriert`;
+    msg += players.length < 2 ? ' – mindestens zwei benötigt.' : '.';
+    playerInfo.textContent = msg;
+  }
+
+  async function loadDefaults(){
+    try {
+      const settings = await fetch('/api/settings').then(r => r.json());
+      const defaults = settings?.defaults || {};
+      if (defaults.name && !nameInput.value) nameInput.placeholder = defaults.name;
+      if (defaults.x01) {
+        if (defaults.x01.base) baseInput.value = defaults.x01.base;
+        if (defaults.x01.bull) bullSelect.value = defaults.x01.bull;
+        if (defaults.x01.in) inSelect.value = defaults.x01.in;
+        if (defaults.x01.out) outSelect.value = defaults.x01.out;
+      }
+      const round1 = defaults.formatsPerRound?.[1];
+      if (round1?.legsPerSet) legsInput.value = round1.legsPerSet;
+      if (round1?.setsToWin) setsInput.value = round1.setsToWin;
+    } catch (err) {
+      console.warn('Konnte Settings nicht laden', err);
+    }
+  }
+
+  function resetStatus(){
+    statusEl.className = 'small status-line';
+    statusEl.textContent = '';
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    resetStatus();
+    const players = parsePlayers(playerTextarea.value);
+    if (players.length < 2) {
+      statusEl.className = 'small status-line is-error';
+      statusEl.textContent = 'Bitte mindestens zwei Spieler angeben.';
+      return;
+    }
+    const payload = {
+      name: nameInput.value.trim() || undefined,
+      players: players.map(p => Number.isFinite(p.seed) ? { name: p.name, seed: p.seed } : { name: p.name }),
+      shuffle: shuffleCheckbox.checked,
+      x01: {
+        base: Number(baseInput.value),
+        bull: bullSelect.value,
+        in: inSelect.value,
+        out: outSelect.value
+      },
+      format: {
+        legsPerSet: Number(legsInput.value),
+        setsToWin: Number(setsInput.value)
+      }
+    };
+
+    const overflow = Math.max(0, players.length - 16);
+
+    try {
+      submitBtn.disabled = true;
+      statusEl.textContent = 'Erstelle Turnier …';
+      const resp = await fetch('/api/tournaments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!resp.ok) {
+        const errPayload = await resp.json().catch(() => ({}));
+        throw new Error(errPayload.error || resp.statusText);
+      }
+      const data = await resp.json();
+      const tid = data?.id;
+      let message = 'Turnier erstellt';
+      if (tid) {
+        message += ` · ID: <code class="mono">${tid}</code>`;
+      }
+      if (autoStartCheckbox.checked && tid) {
+        const startResp = await fetch(`/api/tournaments/${tid}/start`, { method: 'POST' });
+        if (!startResp.ok) {
+          const errPayload = await startResp.json().catch(() => ({}));
+          throw new Error(errPayload.error || 'Turnierstart fehlgeschlagen');
+        }
+        message += ' · Auto-Start ausgeführt';
+      } else if (tid) {
+        message += ` · <a href="/bracket?id=${tid}">Bracket öffnen</a>`;
+      }
+      if (overflow > 0) {
+        message += ` · ${overflow} weitere${overflow === 1 ? 'r' : ''} Spieler ignoriert`;
+      }
+      statusEl.className = 'small status-line is-ok';
+      statusEl.innerHTML = message + '.';
+    } catch (err) {
+      statusEl.className = 'small status-line is-error';
+      statusEl.textContent = `Fehler: ${err.message}`;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  playerTextarea.addEventListener('input', updatePlayerInfo);
+  loadDefaults();
+  updatePlayerInfo();
+})();
+</script>
 </body></html>

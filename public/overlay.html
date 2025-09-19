@@ -35,7 +35,7 @@ body.dark { background:#00000000; }
 const dash = io('/dashboard');
 let TID = new URLSearchParams(location.search).get('id') || null;
 
-function nameOf(t,pid){ const p=(t.players||[]).find(pp=>pp.id===pid); return p? p.name : "—"; }
+function playerLabel(t,pid){ const p=(t.players||[]).find(pp=>pp.id===pid); if(!p) return '—'; return p.seed? `#${p.seed} ${p.name}` : p.name; }
 function statusBadge(st){ const map={running:'b-running',assigned:'b-assigned',pending:'b-pending',done:'b-done'}; const cls=map[st||'pending']||'b-pending'; return '<span class="badge '+cls+'">'+(st||'pending')+'</span>'; }
 
 function renderNow(t){
@@ -44,7 +44,7 @@ function renderNow(t){
   const assigned = (t.matches||[]).filter(m=>m.status==='assigned');
   const show = running.concat(assigned).slice(0,4);
   show.forEach(m=>{
-    const a=nameOf(t,m.playerA_id), b=nameOf(t,m.playerB_id);
+    const a=playerLabel(t,m.playerA_id), b=playerLabel(t,m.playerB_id);
     const div=document.createElement('div'); div.className='card';
     div.innerHTML = `
       <div class="header">
