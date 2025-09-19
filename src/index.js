@@ -82,7 +82,8 @@ app.use(cors({
     else cb(null, false);
   }
 }));
-app.use("/", express.static("public"));
+app.use(express.static("public", { extensions: ["html"] }));
+
 
 // --- HTTP/HTTPS server ---
 let server;

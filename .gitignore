@@ -1,0 +1,53 @@
+# --- Node / Package ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.node_repl_history
+.eslintcache
+*.tgz
+
+# Lockfiles: in Git behalten (empfohlen)
+# package-lock.json
+
+# --- Env & Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Runtime / Datenbanken ---
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+
+# --- TLS / Zertifikate ---
+certs/
+*.pem
+*.crt
+*.key
+
+# --- Build Artefakte / Caches ---
+dist/
+build/
+coverage/
+.tmp/
+.cache/
+*.zip
+
+# --- Docker ---
+docker-data/
+docker-compose.override.yml
+
+# --- Betriebssystem / Editoren ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
