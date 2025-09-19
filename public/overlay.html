@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overlay – Autodarts</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root { --brand:#fe7d19; --bg:#262629; --fg:#ffffff; --muted:#bfbfc4; --ok:#2ecc71; --warn:#f1c40f; --info:#3498db; --bad:#e74c3c; }
+*{box-sizing:border-box}
+html, body { margin:0; height:100%; background:transparent; }
+body.dark { background:#00000000; }
+.container { padding:16px; font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; color:var(--fg); }
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+.card { background: rgba(38,38,41,0.85); border:1px solid #3a3a3f; border-radius:16px; padding:14px; }
+.header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.h-title { font-size:20px; font-weight:700; letter-spacing:.3px }
+.badge { padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; color:#000; }
+.b-running { background: var(--ok); }
+.b-assigned { background: var(--info); }
+.b-pending { background: #999; color:#222; }
+.b-done { background: var(--bad); color:#fff; }
+.teams { display:grid; gap:8px; }
+.row { display:grid; grid-template-columns: 1fr auto; align-items:center; gap:10px; }
+.name { font-size:28px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.score { font-size:28px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.meta { margin-top:6px; font-size:12px; color: var(--muted); display:flex; gap:12px }
+.bracket-mini { margin-top:16px; font-size:12px; color:var(--muted) }
+</style>
+</head><body class="dark">
+<div class="container">
+  <div id="now" class="grid"></div>
+  <div class="bracket-mini" id="mini"></div>
+</div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const dash = io('/dashboard');
+let TID = new URLSearchParams(location.search).get('id') || null;
+
+function nameOf(t,pid){ const p=(t.players||[]).find(pp=>pp.id===pid); return p? p.name : "—"; }
+function statusBadge(st){ const map={running:'b-running',assigned:'b-assigned',pending:'b-pending',done:'b-done'}; const cls=map[st||'pending']||'b-pending'; return '<span class="badge '+cls+'">'+(st||'pending')+'</span>'; }
+
+function renderNow(t){
+  const host = document.getElementById('now'); host.innerHTML='';
+  const running = (t.matches||[]).filter(m=>m.status==='running');
+  const assigned = (t.matches||[]).filter(m=>m.status==='assigned');
+  const show = running.concat(assigned).slice(0,4);
+  show.forEach(m=>{
+    const a=nameOf(t,m.playerA_id), b=nameOf(t,m.playerB_id);
+    const div=document.createElement('div'); div.className='card';
+    div.innerHTML = `
+      <div class="header">
+        <div class="h-title">${m.board || 'Board'} · R${m.round_index}${(m.round_index===4&&m.position===2)?' · Bronze':''}</div>
+        ${statusBadge(m.status)}
+      </div>
+      <div class="teams">
+        <div class="row"><div class="name">${a}</div><div class="score">${m.set_score_A}:${m.set_score_B} · ${m.leg_score_A}:${m.leg_score_B}</div></div>
+        <div class="row"><div class="name">${b}</div><div class="score"></div></div>
+      </div>
+      <div class="meta">Legs/Set ${m.legs_per_set} · Sets ${m.sets_to_win}</div>
+    `;
+    host.appendChild(div);
+  });
+}
+
+function renderMiniBracket(t){
+  const done = (t.matches||[]).filter(m=>m.status==='done').length;
+  const total = (t.matches||[]).length;
+  document.getElementById('mini').textContent = `Turnier ${t.id} · ${done}/${total} Matches abgeschlossen`;
+}
+
+dash.on('TOURNAMENT', data => {
+  if (TID && data.id!==TID) return;
+  if (!TID) TID = data.id;
+  renderNow(data);
+  renderMiniBracket(data);
+});
+</script>
+</body></html>

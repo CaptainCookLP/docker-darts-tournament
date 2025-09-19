@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bracket – Autodarts</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+
+:root { --brand:#fe7d19; --bg:#262629; --fg:#ffffff; --muted:#bfbfc4; --card:#2e2e33; --ok:#2ecc71; --warn:#f1c40f; --info:#3498db; --bad:#e74c3c; }
+*{box-sizing:border-box}
+body{ margin:0; background:var(--bg); color:var(--fg); font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
+a{ color:var(--fg); text-decoration:none; opacity:.9 }
+a:hover{ opacity:1 }
+header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #3a3a3f; background:#202024; position:sticky; top:0; z-index:2}
+.nav{ display:flex; gap:12px; }
+.brand{ display:flex; align-items:center; gap:10px }
+.logo{width:12px; height:12px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 6px rgba(254,125,25,.2)}
+h1{font-size:18px; margin:0}
+main{ padding:16px }
+.card{ background:var(--card); border:1px solid #3a3a3f; border-radius:14px; padding:16px }
+h2{margin:0 0 10px 0; font-size:16px}
+input,select,textarea,button { background:#1f1f22; color:var(--fg); border:1px solid #3a3a3f; border-radius:10px; padding:10px; }
+button{ cursor:pointer; font-weight:600 }
+button.primary{ background:var(--brand); border-color:var(--brand); color:#000 }
+.small{ font-size:12px; color:var(--muted) }
+.row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+.stack{ display:grid; gap:10px }
+.badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700 }
+.status-pending{background:#444; color:#eee}
+.status-assigned{background:var(--info); color:#000}
+.status-running{background:var(--ok); color:#000}
+.status-done{background:var(--bad); color:#fff}
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+
+.bracket{ display:grid; grid-template-columns: repeat(5, 1fr); gap:16px; position:relative }
+.column{ display:grid; gap:12px }
+.match{ border:1px solid #3a3a3f; border-radius:12px; padding:10px; background:#1f1f22 }
+.title{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px }
+.players{ display:flex; flex-direction:column; gap:6px }
+.player{ display:flex; align-items:center; justify-content:space-between; gap:8px }
+.sep{ height:1px; background:#35353a; margin:8px 0 }
+svg.connect{ position:absolute; inset:0; pointer-events:none }
+</style>
+</head><body>
+<header>
+  <div class="brand"><div class="logo"></div><h1>Autodarts – Bracket</h1></div>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/settings">Settings</a>
+    <a href="/ws-log">WS Log</a>
+    <span class="small">v0.3</span>
+  </nav>
+</header>
+<main>
+  <div class="card">
+    <div class="small">TID: <span id="tid" class="mono">–</span></div>
+    <div id="bracket" class="bracket">
+      <svg class="connect"></svg>
+      <div class="column"><div class="small">Achtelfinale</div><div id="r1"></div></div>
+      <div class="column"><div class="small">Viertelfinale</div><div id="r2"></div></div>
+      <div class="column"><div class="small">Halbfinale</div><div id="r3"></div></div>
+      <div class="column"><div class="small">Finale</div><div id="r4"></div></div>
+      <div class="column"><div class="small">Bronze</div><div id="r5"></div></div>
+    </div>
+  </div>
+</main>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const dash = io('/dashboard');
+let TID = null;
+const urlTid = new URLSearchParams(location.search).get('id');
+if (urlTid) TID = urlTid;
+document.getElementById('tid').textContent = TID || '–';
+
+dash.on('TOURNAMENT', data => { if (TID && data.id!==TID) return; render(data); });
+
+function nameOf(t,pid){ const p=(t.players||[]).find(pp=>pp.id===pid); return p? p.name : "—"; }
+function statusBadge(st){ const c=st==='running'?'status-running':st==='assigned'?'status-assigned':st==='done'?'status-done':'status-pending'; return `<span class="badge ${c}">${st||'pending'}</span>`; }
+
+function render(t){
+  if(!t) return;
+  if (!TID) { TID = t.id; document.getElementById('tid').textContent=TID; }
+  const rounds = {1:[],2:[],3:[],4:[],5:[]};
+  (t.matches||[]).forEach(m=>{ const k=(m.round_index===4&&m.position===2)?5:m.round_index; rounds[k].push(m); });
+
+  for(const i of [1,2,3,4,5]){
+    const host=document.getElementById('r'+i); host.innerHTML='';
+    rounds[i].forEach(m=>{
+      const div=document.createElement('div'); div.className='match'; div.dataset.round=m.round_index; div.dataset.pos=m.position;
+      const players=[nameOf(t,m.playerA_id), nameOf(t,m.playerB_id)];
+      div.innerHTML = `
+        <div class="title">
+          <div class="small">R${m.round_index} P${m.position}${(m.round_index===4&&m.position===2)?" · Bronze":""}</div>
+          ${statusBadge(m.status)}
+        </div>
+        <div class="players">
+          <div class="player"><span>${players[0]}</span> <span class="small mono">${m.set_score_A}:${m.set_score_B} · ${m.leg_score_A}:${m.leg_score_B}</span></div>
+          <div class="player"><span>${players[1]}</span> <span class="small mono"></span></div>
+        </div>
+        <div class="sep"></div>
+        <div class="small">Board: ${m.board||"-"} · Legs/Set ${m.legs_per_set} · Sets ${m.sets_to_win}</div>
+      `;
+      host.appendChild(div);
+    });
+  }
+  drawConnectors();
+}
+
+function drawConnectors(){
+  const svg = document.querySelector('svg.connect');
+  const br = document.getElementById('bracket').getBoundingClientRect();
+  svg.setAttribute('viewBox', `0 0 ${br.width} ${br.height}`);
+  svg.innerHTML='';
+  connectRound('#r1', '#r2', 2);
+  connectRound('#r2', '#r3', 2);
+  connectRound('#r3', '#r4', 2);
+  function connectRound(aSel, bSel, groupSize){
+    const a = document.querySelector(aSel);
+    const b = document.querySelector(bSel);
+    if(!a || !b) return;
+    const aCards = Array.from(a.children);
+    const bCards = Array.from(b.children);
+    for(let i=0;i<bCards.length;i++){
+      const target = bCards[i];
+      const group = aCards.slice(i*groupSize, i*groupSize+groupSize);
+      if (group.length===0) continue;
+      const tr = target.getBoundingClientRect();
+      const ty = tr.top + tr.height/2 - br.top;
+      const tx = tr.left - br.left;
+      const tl = tx;
+      const sx = [];
+      const sy = [];
+      group.forEach(g=>{
+        const gr = g.getBoundingClientRect();
+        sx.push(gr.right - br.left);
+        sy.push(gr.top + gr.height/2 - br.top);
+      });
+      const mx = (Math.min(...sx) + tl)/2;
+      sy.forEach((y, idx)=>{
+        const x1 = sx[idx], y1 = y;
+        const x2 = tl, y2 = ty;
+        const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+        path.setAttribute('d', `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
+        path.setAttribute('stroke', '#4a4a50');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke-width', '2');
+        svg.appendChild(path);
+      });
+    }
+  }
+}
+</script>
+</body></html>

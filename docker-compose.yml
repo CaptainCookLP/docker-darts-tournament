@@ -1,0 +1,15 @@
+version: "3.9"
+services:
+  tournament:
+    build: .
+    container_name: autodarts-tournament
+    env_file:
+      - .env
+    ports:
+      - "${PORT-8080}:8080"
+    volumes:
+      - data:/data
+      # - ./certs:/certs:ro  # un-comment when using TLS
+    restart: unless-stopped
+volumes:
+  data: {}

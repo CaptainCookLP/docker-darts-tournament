@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autodarts – Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root { --brand:#fe7d19; --bg:#262629; --fg:#ffffff; --muted:#bfbfc4; --card:#2e2e33; --ok:#2ecc71; --warn:#f1c40f; --info:#3498db; --bad:#e74c3c; }
+*{box-sizing:border-box}
+body{ margin:0; background:var(--bg); color:var(--fg); font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
+a{ color:var(--fg); text-decoration:none; opacity:.9 }
+a:hover{ opacity:1 }
+header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #3a3a3f; background:#202024; position:sticky; top:0; z-index:2}
+.nav{ display:flex; gap:12px; }
+.brand{ display:flex; align-items:center; gap:10px }
+.logo{width:12px; height:12px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 6px rgba(254,125,25,.2)}
+h1{font-size:18px; margin:0}
+main{ padding:16px }
+.card{ background:var(--card); border:1px solid #3a3a3f; border-radius:14px; padding:16px }
+h2{margin:0 0 10px 0; font-size:16px}
+input,select,textarea,button { background:#1f1f22; color:var(--fg); border:1px solid #3a3a3f; border-radius:10px; padding:10px; }
+button{ cursor:pointer; font-weight:600 }
+button.primary{ background:var(--brand); border-color:var(--brand); color:#000 }
+.small{ font-size:12px; color:var(--muted) }
+.row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+.stack{ display:grid; gap:10px }
+.badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700 }
+.status-pending{background:#444; color:#eee}
+.status-assigned{background:var(--info); color:#000}
+.status-running{background:var(--ok); color:#000}
+.status-done{background:var(--bad); color:#fff}
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+</style>
+</head><body>
+<header>
+  <div class="brand"><div class="logo"></div><h1>Autodarts – Dashboard</h1></div>
+  <nav class="nav">
+    <a href="/settings">Settings</a>
+    <a href="/bracket">Bracket</a>
+    <a href="/overlay">Overlay</a>
+    <a href="/ws-log">WS Log</a>
+  </nav>
+</header>
+<main>
+  <div class="card" style="max-width:880px">
+    <h2>Schnellstart</h2>
+    <ol>
+      <li>Öffne <a href="/settings">Settings</a> und prüfe Defaults (X01, Legs/Sets pro Runde).</li>
+      <li>Lege ein Turnier via API an (z. B. per curl/Postman) oder nutze deine bestehende UI.</li>
+      <li>Starte das Turnier: <code class="mono">POST /api/tournaments/:id/start</code>.</li>
+      <li>Zeig den Fortschritt in <a href="/bracket">Bracket</a> oder das Publikum-Overlay <a href="/overlay">Overlay</a>.</li>
+    </ol>
+    <p class="small">Hinweis: Diese Startseite ist bewusst minimal gehalten. Du kannst sie jederzeit ersetzen.</p>
+  </div>
+</main>
+</body></html>

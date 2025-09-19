@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WS Log – Autodarts</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+
+:root { --brand:#fe7d19; --bg:#262629; --fg:#ffffff; --muted:#bfbfc4; --card:#2e2e33; --ok:#2ecc71; --warn:#f1c40f; --info:#3498db; --bad:#e74c3c; }
+*{box-sizing:border-box}
+body{ margin:0; background:var(--bg); color:var(--fg); font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
+a{ color:var(--fg); text-decoration:none; opacity:.9 }
+a:hover{ opacity:1 }
+header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #3a3a3f; background:#202024; position:sticky; top:0; z-index:2}
+.nav{ display:flex; gap:12px; }
+.brand{ display:flex; align-items:center; gap:10px }
+.logo{width:12px; height:12px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 6px rgba(254,125,25,.2)}
+h1{font-size:18px; margin:0}
+main{ padding:16px }
+.card{ background:var(--card); border:1px solid #3a3a3f; border-radius:14px; padding:16px }
+h2{margin:0 0 10px 0; font-size:16px}
+input,select,textarea,button { background:#1f1f22; color:var(--fg); border:1px solid #3a3a3f; border-radius:10px; padding:10px; }
+button{ cursor:pointer; font-weight:600 }
+button.primary{ background:var(--brand); border-color:var(--brand); color:#000 }
+.small{ font-size:12px; color:var(--muted) }
+.row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+.stack{ display:grid; gap:10px }
+.badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700 }
+.status-pending{background:#444; color:#eee}
+.status-assigned{background:var(--info); color:#000}
+.status-running{background:var(--ok); color:#000}
+.status-done{background:var(--bad); color:#fff}
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+
+.log{ background:#0f0f12; border-radius:12px; padding:10px; height:60vh; overflow:auto; border:1px solid #3a3a3f }
+.line{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; padding:2px 0 }
+.flt{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+</style>
+</head><body>
+<header>
+  <div class="brand"><div class="logo"></div><h1>Autodarts – WS Log</h1></div>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/settings">Settings</a>
+    <a href="/bracket">Bracket</a>
+    <span class="small">v0.3</span>
+  </nav>
+</header>
+<main>
+  <div class="card">
+    <div class="flt">
+      <label>Filter <input id="filter" placeholder="z.B. SCORE_UPDATE"></label>
+      <button id="clear">Clear</button>
+      <span class="small">zeigt Live-Events vom Server (/wslog) und letzte DB-Einträge</span>
+    </div>
+    <div id="log" class="log"></div>
+  </div>
+</main>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const logEl = document.getElementById('log');
+function addLine(obj){
+  const f = document.getElementById('filter').value.trim().toLowerCase();
+  const text = JSON.stringify(obj);
+  if (f && !text.toLowerCase().includes(f)) return;
+  const div = document.createElement('div');
+  div.className='line';
+  div.textContent = text;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+document.getElementById('clear').addEventListener('click', ()=> logEl.innerHTML='');
+
+fetch('/api/events?limit=50').then(r=>r.json()).then(rows => {
+  rows.reverse().forEach(r => addLine({ ts:r.ts, type:r.type, payload: JSON.parse(r.payload||'{}'), tid:r.tournament_id }));
+});
+
+const ws = io('/wslog');
+ws.on('connect', ()=> addLine({type:'WSLOG_CONNECTED', ts: Date.now()}));
+ws.on('HELLO', msg => addLine({type:'HELLO', ...msg}));
+ws.on('AGENTS', list => addLine({type:'AGENTS', list}));
+ws.on('LOG', ev => addLine(ev));
+ws.on('SCORE', ev => addLine(ev));
+</script>
+</body></html>
