@@ -73,7 +73,11 @@ document.getElementById('tid').textContent = TID || '–';
 
 dash.on('TOURNAMENT', data => { if (TID && data.id!==TID) return; render(data); });
 
-function nameOf(t,pid){ const p=(t.players||[]).find(pp=>pp.id===pid); return p? p.name : "—"; }
+function playerLabel(t,pid){
+  const p=(t.players||[]).find(pp=>pp.id===pid);
+  if (!p) return '—';
+  return p.seed ? `#${p.seed} ${p.name}` : p.name;
+}
 function statusBadge(st){ const c=st==='running'?'status-running':st==='assigned'?'status-assigned':st==='done'?'status-done':'status-pending'; return `<span class="badge ${c}">${st||'pending'}</span>`; }
 
 function render(t){
@@ -86,7 +90,7 @@ function render(t){
     const host=document.getElementById('r'+i); host.innerHTML='';
     rounds[i].forEach(m=>{
       const div=document.createElement('div'); div.className='match'; div.dataset.round=m.round_index; div.dataset.pos=m.position;
-      const players=[nameOf(t,m.playerA_id), nameOf(t,m.playerB_id)];
+      const players=[playerLabel(t,m.playerA_id), playerLabel(t,m.playerB_id)];
       div.innerHTML = `
         <div class="title">
           <div class="small">R${m.round_index} P${m.position}${(m.round_index===4&&m.position===2)?" · Bronze":""}</div>

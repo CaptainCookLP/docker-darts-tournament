@@ -107,6 +107,100 @@ function makeId(prefix="id"){ return `${prefix}_${randomUUID()}`; }
 function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
 function nextRoundFrom(r){ return r>=4? null : r+1; }
 
+function parseSeedFromLine(raw){
+  const text = (raw ?? "").toString().trim();
+  if (!text) return { name: "", seed: null };
+  const lead = text.match(/^(\d{1,2})\s*(?:[.)-]\s*)?(.*)$/);
+  if (lead && lead[2] && lead[2].trim()) {
+    return { name: lead[2].trim(), seed: Number(lead[1]) };
+  }
+  const hash = text.match(/^(.*\S)\s+#\s*(\d{1,2})$/);
+  if (hash) {
+    return { name: hash[1].trim(), seed: Number(hash[2]) };
+  }
+  const paren = text.match(/^(.*\S)\s*\(\s*(\d{1,2})\s*\)$/);
+  if (paren) {
+    return { name: paren[1].trim(), seed: Number(paren[2]) };
+  }
+  return { name: text, seed: null };
+}
+
+function normalizePlayersPayload(body){
+  const results = [];
+  let order = 0;
+  const add = (name, seed) => {
+    const trimmed = (name || "").toString().trim();
+    if (!trimmed) return;
+    const s = Number.isFinite(seed) ? Math.min(Math.max(Math.round(seed), 1), 16) : null;
+    results.push({ name: trimmed, seed: s, order: order++ });
+  };
+
+  const processTextBlock = (text) => {
+    if (typeof text !== "string") return;
+    text.split(/\r?\n/).forEach(line => {
+      if (!line || !line.trim()) return;
+      const parsed = parseSeedFromLine(line);
+      add(parsed.name, parsed.seed);
+    });
+  };
+
+  if (Array.isArray(body?.players)) {
+    body.players.forEach((entry) => {
+      if (typeof entry === "string") {
+        const parsed = parseSeedFromLine(entry);
+        add(parsed.name, parsed.seed);
+        return;
+      }
+      if (entry && typeof entry === "object") {
+        const name = entry.name ?? entry.label ?? "";
+        const seedRaw = entry.seed ?? entry.position ?? entry.preferredSeed;
+        const seedNum = seedRaw === undefined || seedRaw === null || seedRaw === "" ? null : Number(seedRaw);
+        add(name, Number.isFinite(seedNum) ? seedNum : null);
+      }
+    });
+  } else if (typeof body?.players === "string") {
+    processTextBlock(body.players);
+  }
+
+  processTextBlock(body?.playersText);
+  return results;
+}
+
+function allocatePlayerSlots(players, shuffleRequested){
+  const slots = new Array(16).fill(null);
+  const queue = [];
+  const sorted = players
+    .filter(p => p && p.name)
+    .map(p => ({ name: p.name, seed: Number.isFinite(p.seed) ? p.seed : null, order: p.order ?? 0 }))
+    .sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+
+  for (const p of sorted) {
+    const idx = p.seed ? Math.min(Math.max(p.seed, 1), 16) - 1 : null;
+    if (idx !== null && slots[idx] === null) {
+      slots[idx] = { name: p.name, submittedSeed: p.seed };
+    } else {
+      queue.push({ name: p.name, submittedSeed: p.seed });
+    }
+  }
+
+  if (shuffleRequested) shuffle(queue);
+
+  for (let i=0;i<16;i++) {
+    if (!slots[i]) {
+      const next = queue.shift() || null;
+      slots[i] = next;
+    }
+  }
+
+  return { slots, overflow: queue.length };
+}
+
+function asPositiveInt(value, fallback){
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  return Math.round(num);
+}
+
 function getDefaultSettings(){
   return {
     mode: "single-elim",
@@ -219,53 +313,71 @@ app.get("/api/events", (req,res) => {
 
 app.post("/api/tournaments", (req,res) => {
   try {
-    const { name, players, x01, format, formatsPerRound, shuffle: doShuffle } = req.body || {};
-    if (!Array.isArray(players) || players.length < 2) return res.status(400).json({ error:"players must be an array with >=2 names" });
-    const tid = makeId("t");
-    q.insertTournament.run(tid, name || "Tournament", new Date().toISOString());
-
-    const list = players.slice(0,16);
-    while (list.length < 16) list.push(null);
-    if (doShuffle) {
-      const real = list.filter(Boolean);
-      shuffle(real);
-      for (let i=0;i<list.length;i++) list[i] = real[i] || null;
+    const payload = req.body || {};
+    const normalizedPlayers = normalizePlayersPayload(payload);
+    const doShuffle = !!(payload.shuffle === true || payload.shuffle === "true");
+    const { slots, overflow } = allocatePlayerSlots(normalizedPlayers, doShuffle);
+    const effectivePlayers = slots.filter(Boolean);
+    if (effectivePlayers.length < 2) {
+      return res.status(400).json({ error:"at least two players are required" });
     }
-    const ids = [];
-    list.forEach((p, i) => { const id = p ? makeId("p") : null; if(p) q.insertPlayer.run(id, tid, p, i+1); ids.push(id); });
+
+    if (overflow > 0) {
+      console.warn(`[tournament] ignoring ${overflow} players beyond the first 16`);
+    }
 
     const settings = loadSettings();
-    const base = Number(x01?.base ?? settings.defaults.x01.base);
-    const xin  = x01?.in   ?? settings.defaults.x01.in;
-    const xout = x01?.out  ?? settings.defaults.x01.out;
-    const bull = x01?.bull ?? settings.defaults.x01.bull;
+    const tid = makeId("t");
+    const tournamentName = payload.name?.toString().trim() || settings.defaults?.name || "Tournament";
+    const createdAt = new Date().toISOString();
 
-    const defaultL = Number(format?.legsPerSet ?? settings.defaults.formatsPerRound[1].legsPerSet);
-    const defaultS = Number(format?.setsToWin ?? settings.defaults.formatsPerRound[1].setsToWin);
+    const base = asPositiveInt(payload.x01?.base, settings.defaults.x01.base);
+    const xin  = payload.x01?.in   ?? settings.defaults.x01.in;
+    const xout = payload.x01?.out  ?? settings.defaults.x01.out;
+    const bull = payload.x01?.bull ?? settings.defaults.x01.bull;
+
+    const defaultL = asPositiveInt(payload.format?.legsPerSet, settings.defaults.formatsPerRound[1].legsPerSet);
+    const defaultS = asPositiveInt(payload.format?.setsToWin, settings.defaults.formatsPerRound[1].setsToWin);
     const frDefaults = settings.defaults.formatsPerRound || {};
     const fmt = (r) => {
-      const fr = formatsPerRound && formatsPerRound[r];
+      const fr = payload.formatsPerRound && payload.formatsPerRound[r];
       const d  = frDefaults[r] || { legsPerSet: defaultL, setsToWin: defaultS };
-      return { legsPerSet: Number(fr?.legsPerSet ?? d.legsPerSet), setsToWin: Number(fr?.setsToWin ?? d.setsToWin) };
+      return {
+        legsPerSet: asPositiveInt(fr?.legsPerSet, d.legsPerSet),
+        setsToWin: asPositiveInt(fr?.setsToWin, d.setsToWin)
+      };
     };
 
-    const pairs = [[0,15],[7,8],[4,11],[3,12],[2,13],[5,10],[6,9],[1,14]].map(([a,b]) => [ids[a], ids[b]]);
-    const f1 = fmt(1);
-    pairs.forEach((pair,i)=> q.insertMatch.run(makeId("m"), tid, 1, i+1, pair[0], pair[1], null, null, "pending",
-      base,xin,xout,bull,f1.legsPerSet,f1.setsToWin, JSON.stringify({})));
-    const f2 = fmt(2);
-    for (let i=1;i<=4;i++) q.insertMatch.run(makeId("m"), tid, 2, i, null,null,null,null,"pending",
-      base,xin,xout,bull,f2.legsPerSet,f2.setsToWin, JSON.stringify({}));
-    const f3 = fmt(3);
-    for (let i=1;i<=2;i++) q.insertMatch.run(makeId("m"), tid, 3, i, null,null,null,null,"pending",
-      base,xin,xout,bull,f3.legsPerSet,f3.setsToWin, JSON.stringify({}));
-    const f4 = fmt(4);
-    q.insertMatch.run(makeId("m"), tid, 4, 1, null,null,null,null,"pending",
-      base,xin,xout,bull,f4.legsPerSet,f4.setsToWin, JSON.stringify({}));
-    const fBronze = fmt(5) || f4;
-    q.insertMatch.run(makeId("m"), tid, 4, 2, null,null,null,null,"pending",
-      base,xin,xout,bull,fBronze.legsPerSet,fBronze.setsToWin, JSON.stringify({ bronze:true }));
+    const createTournamentTx = db.transaction(() => {
+      q.insertTournament.run(tid, tournamentName, createdAt);
+      const ids = [];
+      slots.forEach((entry, i) => {
+        const id = entry ? makeId("p") : null;
+        if (entry) q.insertPlayer.run(id, tid, entry.name, i+1);
+        ids.push(id);
+      });
 
+      const pairs = [[0,15],[7,8],[4,11],[3,12],[2,13],[5,10],[6,9],[1,14]].map(([a,b]) => [ids[a], ids[b]]);
+      const f1 = fmt(1);
+      pairs.forEach((pair,i)=> q.insertMatch.run(makeId("m"), tid, 1, i+1, pair[0], pair[1], null, null, "pending",
+        base,xin,xout,bull,f1.legsPerSet,f1.setsToWin, JSON.stringify({})));
+      const f2 = fmt(2);
+      for (let i=1;i<=4;i++) q.insertMatch.run(makeId("m"), tid, 2, i, null,null,null,null,"pending",
+        base,xin,xout,bull,f2.legsPerSet,f2.setsToWin, JSON.stringify({}));
+      const f3 = fmt(3);
+      for (let i=1;i<=2;i++) q.insertMatch.run(makeId("m"), tid, 3, i, null,null,null,null,"pending",
+        base,xin,xout,bull,f3.legsPerSet,f3.setsToWin, JSON.stringify({}));
+      const f4 = fmt(4);
+      q.insertMatch.run(makeId("m"), tid, 4, 1, null,null,null,null,"pending",
+        base,xin,xout,bull,f4.legsPerSet,f4.setsToWin, JSON.stringify({}));
+      const fBronze = fmt(5) || f4;
+      q.insertMatch.run(makeId("m"), tid, 4, 2, null,null,null,null,"pending",
+        base,xin,xout,bull,fBronze.legsPerSet,fBronze.setsToWin, JSON.stringify({ bronze:true }));
+
+      return ids;
+    });
+
+    createTournamentTx();
     res.json(getTournamentDetail(tid));
   } catch (e) { console.error(e); res.status(500).json({error:e.message}); }
 });
